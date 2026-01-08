@@ -1,3 +1,11 @@
+"""
+Content Processor Module
+
+This module handles email content extraction, PDF processing using Poppler,
+image processing, and normalization of unstructured document data into
+structured JSON format for the publishing layer.
+"""
+
 import os
 import re
 import io
@@ -16,81 +24,157 @@ from pdf2image import convert_from_path
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 def load_config():
+    """
+    Load configuration from a JSON file.
+    
+    Returns:
+        Dictionary containing configuration parameters.
+        
+    Raises:
+        FileNotFoundError: If config.json does not exist.
+    """
     config_path = Path("config.json")
     if not config_path.exists():
-        raise FileNotFoundError("config.json dosyası bulunamadı!")
+        raise FileNotFoundError("config.json file not found!")
     
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    with open(config_path, "r", encoding="utf-8") as config_file:
+        return json.load(config_file)
+
 
 def save_config(config):
+    """
+    Save configuration to a JSON file.
+    
+    Args:
+        config: Configuration dictionary to save.
+    """
     config_path = Path("config.json")
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
+    with open(config_path, "w", encoding="utf-8") as config_file:
+        json.dump(config, config_file, indent=2)
+
 
 def save_processed_uid(uid, config):
-    # İşlenmiş UID'leri tek satırda almak için ayar
+    """
+    Save a processed UID to the configuration file.
+    
+    Args:
+        uid: Email UID that was processed.
+        config: Configuration dictionary to update.
+    """
+    # Get processed UIDs as a single line setting
     processed_uids = config.get("processed_uids", "")
     
-    # UID'leri virgülle ayırarak bir listeye çevir
+    # Split UIDs by comma into a list
     uid_list = processed_uids.split(",") if processed_uids else []
 
     if uid not in uid_list:
         uid_list.append(uid)
 
-    # UID'leri tekrar tek satırda birleştir ve config'e kaydet
+    # Rejoin UIDs as single line and save to config
     config["processed_uids"] = ",".join(uid_list)
     save_config(config)
 
-def decode_str(s, default_charset='utf-8'):
-    if isinstance(s, str):
-        return s
-    elif s is None:
+
+def decode_string(input_bytes, default_charset='utf-8'):
+    """
+    Decode bytes to string with multiple charset fallbacks.
+    
+    Args:
+        input_bytes: Bytes or string to decode.
+        default_charset: Primary charset to try.
+        
+    Returns:
+        Decoded string.
+    """
+    if isinstance(input_bytes, str):
+        return input_bytes
+    elif input_bytes is None:
         return ''
     
     charsets = [default_charset, 'utf-8', 'iso-8859-9', 'latin-1', 'cp1254', 'ascii']
     for charset in charsets:
         try:
-            return s.decode(charset)
+            return input_bytes.decode(charset)
         except (UnicodeDecodeError, AttributeError):
             continue
     
-    return s.decode('utf-8', errors='ignore')
+    return input_bytes.decode('utf-8', errors='ignore')
 
-def decode_mime_words(s):
-    if not s:
+
+def decode_mime_words(header_string):
+    """
+    Decode MIME-encoded header words.
+    
+    Args:
+        header_string: MIME-encoded header string.
+        
+    Returns:
+        Decoded header string.
+    """
+    if not header_string:
         return ''
     return ''.join(
-        decode_str(word, charset or 'utf-8')
-        for word, charset in decode_header(s)
+        decode_string(word, charset or 'utf-8')
+        for word, charset in decode_header(header_string)
     )
 
+
 def decode_subject(msg):
+    """
+    Decode email subject from message object.
+    
+    Args:
+        msg: Email message object.
+        
+    Returns:
+        Decoded subject string.
+    """
     try:
         subject = decode_mime_words(msg.get("Subject", ""))
         return subject
-    except Exception as e:
-        logger.error(f"Konu çözümlenirken hata oluştu: {e}")
-        return "Konu çözümlenemedi"
+    except Exception as error:
+        logger.error(f"Error decoding subject: {error}")
+        return "Subject could not be decoded"
 
-def decode_from(msg):
+
+def decode_sender(msg):
+    """
+    Decode sender information from message object.
+    
+    Args:
+        msg: Email message object.
+        
+    Returns:
+        Formatted sender string with name and email.
+    """
     try:
         from_header = msg.get("From", "")
         if not from_header:
-            return "Gönderen bilgisi yok"
+            return "No sender information"
         
-        from_str = decode_mime_words(from_header)
+        from_string = decode_mime_words(from_header)
         
-        name, email_addr = parseaddr(from_str)
+        name, email_address = parseaddr(from_string)
         if name:
-            return f"{name} <{email_addr}>"
-        return email_addr
-    except Exception as e:
-        logger.error(f"Gönderen bilgisi çözümlenirken hata oluştu: {e}")
-        return "Gönderen bilgisi çözümlenemedi"
+            return f"{name} <{email_address}>"
+        return email_address
+    except Exception as error:
+        logger.error(f"Error decoding sender information: {error}")
+        return "Sender information could not be decoded"
 
-def get_mail_content(msg):
+
+def get_email_content(msg):
+    """
+    Extract text, HTML content and attachments from email message.
+    
+    Args:
+        msg: Email message object.
+        
+    Returns:
+        Tuple of (text_content_list, html_content_list, attachments_list).
+    """
     text_content = []
     html_content = []
     attachments = []
@@ -108,7 +192,7 @@ def get_mail_content(msg):
             elif part.get('Content-Transfer-Encoding', '').lower() == 'base64':
                 content = base64.b64decode(content)
             
-            decoded_content = decode_str(content, charset)
+            decoded_content = decode_string(content, charset)
             
             if part.get_content_type() == 'text/plain':
                 text_content.append(decoded_content)
@@ -116,9 +200,9 @@ def get_mail_content(msg):
                 html_content.append(decoded_content)
             elif part.get_filename():
                 attachments.append((part.get_filename(), content))
-        except Exception as e:
-            logger.error(f"İçerik çözümlenirken hata oluştu: {e}")
-            logger.error(f"Hatalı içerik: {content[:100] if content else 'Boş içerik'}...")
+        except Exception as error:
+            logger.error(f"Error extracting content: {error}")
+            logger.error(f"Problematic content: {content[:100] if content else 'Empty content'}...")
     
     if msg.is_multipart():
         for part in msg.walk():
@@ -128,19 +212,52 @@ def get_mail_content(msg):
     
     return text_content, html_content, attachments
 
+
 class ImageProcessor:
+    """
+    Handles image processing including deduplication, format conversion,
+    and PDF page extraction.
+    """
+    
     def __init__(self, output_dir: str):
+        """
+        Initialize the image processor.
+        
+        Args:
+            output_dir: Directory to save processed images.
+        """
         self.output_dir = output_dir
         self.processed_hashes = {}
         
     def calculate_image_hash(self, image_data: bytes) -> str:
+        """
+        Calculate MD5 hash of image data for deduplication.
+        
+        Args:
+            image_data: Raw image bytes.
+            
+        Returns:
+            MD5 hash string.
+        """
         return hashlib.md5(image_data).hexdigest()
     
     def process_single_image(self, image_data: bytes, uid: str, index: int, prefix: str):
+        """
+        Process and save a single image.
+        
+        Args:
+            image_data: Raw image bytes.
+            uid: Email UID for filename.
+            index: Image index for filename.
+            prefix: Filename prefix.
+            
+        Returns:
+            Path to saved image or None if already processed.
+        """
         image_hash = self.calculate_image_hash(image_data)
         
         if image_hash in self.processed_hashes:
-            logger.info(f"Bu resim daha önce kaydedilmiş: {self.processed_hashes[image_hash]}")
+            logger.info(f"This image was already saved: {self.processed_hashes[image_hash]}")
             return self.processed_hashes[image_hash]
             
         try:
@@ -154,11 +271,22 @@ class ImageProcessor:
             self.processed_hashes[image_hash] = output_path
             return output_path
             
-        except Exception as e:
-            logger.error(f"Resim işlenirken hata oluştu: {e}")
+        except Exception as error:
+            logger.error(f"Error processing image: {error}")
             return None
     
     def process_images(self, images, uid: str, prefix: str = ''):
+        """
+        Process multiple images.
+        
+        Args:
+            images: List of image data bytes.
+            uid: Email UID for filenames.
+            prefix: Filename prefix.
+            
+        Returns:
+            List of processed file paths.
+        """
         processed_files = []
         
         for i, image_data in enumerate(images):
@@ -169,71 +297,101 @@ class ImageProcessor:
         return processed_files
 
     def process_pdf(self, file_path: str, uid: str):
+        """
+        Convert PDF pages to images.
+        
+        Args:
+            file_path: Path to PDF file.
+            uid: Email UID for filenames.
+            
+        Returns:
+            List of processed image file paths.
+        """
         try:
-            logger.info(f"PDF işleniyor: {file_path}")
+            logger.info(f"Processing PDF: {file_path}")
             config = load_config()
             poppler_path = config.get("poppler_path", "")
-            logger.info(f"Kullanılan Poppler path: {poppler_path}")
+            logger.info(f"Using Poppler path: {poppler_path}")
             
             if not os.path.exists(file_path):
-                logger.error(f"PDF dosyası bulunamadı: {file_path}")
+                logger.error(f"PDF file not found: {file_path}")
                 return []
             
             images = convert_from_path(file_path, first_page=1, last_page=4, poppler_path=poppler_path)
-            logger.info(f"Dönüştürülen sayfa sayısı: {len(images)}")
+            logger.info(f"Number of pages converted: {len(images)}")
             
             processed_files = []
             
             for i, image in enumerate(images):
-                logger.info(f"Sayfa {i+1} işleniyor...")
+                logger.info(f"Processing page {i+1}...")
                 img_buffer = io.BytesIO()
                 image.save(img_buffer, format='JPEG')
                 img_data = img_buffer.getvalue()
                 
-                file_path = self.process_single_image(img_data, uid, i, 'pdf_')
-                if file_path:
-                    processed_files.append(file_path)
-                    logger.info(f"Sayfa {i+1} başarıyla işlendi ve kaydedildi: {file_path}")
+                output_file_path = self.process_single_image(img_data, uid, i, 'pdf_')
+                if output_file_path:
+                    processed_files.append(output_file_path)
+                    logger.info(f"Page {i+1} successfully processed and saved: {output_file_path}")
                 else:
-                    logger.warning(f"Sayfa {i+1} işlenemedi veya kaydedilemedi.")
+                    logger.warning(f"Page {i+1} could not be processed or saved.")
             
-            logger.info(f"PDF işleme tamamlandı. Toplam işlenen dosya sayısı: {len(processed_files)}")
+            logger.info(f"PDF processing complete. Total files processed: {len(processed_files)}")
             return processed_files
             
-        except Exception as e:
-            logger.error(f"PDF işlenirken hata oluştu: {e}")
-            logger.exception("Hata detayları:")
+        except Exception as error:
+            logger.error(f"Error processing PDF: {error}")
+            logger.exception("Error details:")
         return []
 
-def clean_filename(filename):
-    # Geçersiz karakterleri kaldır veya değiştir
-    cleaned = re.sub(r'[\r\n]+', ' ', filename)  # Satır sonlarını boşluklarla değiştir
-    cleaned = re.sub(r'[<>:"/\\|?*]', '_', cleaned)  # Diğer geçersiz karakterleri alt çizgi ile değiştir
-    cleaned = cleaned.strip()  # Baştaki ve sondaki boşlukları kaldır
-    return cleaned if cleaned else "nameless"  # Eğer isim boş kalırsa varsayılan bir isim ver
+
+def sanitize_filename(filename):
+    """
+    Clean filename by removing invalid characters.
+    
+    Args:
+        filename: Original filename string.
+        
+    Returns:
+        Sanitized filename safe for filesystem.
+    """
+    # Remove or replace invalid characters
+    cleaned = re.sub(r'[\r\n]+', ' ', filename)  # Replace line breaks with spaces
+    cleaned = re.sub(r'[<>:"/\\|?*]', '_', cleaned)  # Replace other invalid chars with underscore
+    cleaned = cleaned.strip()  # Remove leading/trailing whitespace
+    return cleaned if cleaned else "nameless"  # Return default name if empty
 
 
 def process_email_content(uid, output_dir):
+    """
+    Process email content from raw storage and extract all data.
+    
+    Args:
+        uid: Email UID to process.
+        output_dir: Directory to save processed content.
+        
+    Returns:
+        List of processed file paths.
+    """
     raw_content_dir = Path("rawcontent")
     raw_content_path = raw_content_dir / f"{uid}.eml"
     
     if not raw_content_path.exists():
-        logger.warning(f"Ham içerik bulunamadı: {raw_content_path}")
+        logger.warning(f"Raw content not found: {raw_content_path}")
         return []
     
-    with open(raw_content_path, 'rb') as f:
-        raw_content = f.read()
+    with open(raw_content_path, 'rb') as input_file:
+        raw_content = input_file.read()
     
     msg = email.message_from_bytes(raw_content)
     image_processor = ImageProcessor(output_dir)
     processed_files = []
     
-    from_ = decode_from(msg)
-    to_ = msg.get("To", "")
+    sender = decode_sender(msg)
+    recipient = msg.get("To", "")
     date = msg.get("Date", "")
     subject = decode_subject(msg)
     
-    text_contents, html_contents, attachments = get_mail_content(msg)
+    text_contents, html_contents, attachments = get_email_content(msg)
     
     # Process images and PDFs
     for part in msg.walk():
@@ -245,71 +403,77 @@ def process_email_content(uid, output_dir):
                 
         elif part.get_filename() and part.get_filename().lower().endswith('.pdf'):
             original_filename = part.get_filename()
-            clean_filename_result = clean_filename(original_filename)
-            temp_pdf_path = os.path.join(output_dir, f"temp_{clean_filename_result}")
+            sanitized_filename = sanitize_filename(original_filename)
+            temp_pdf_path = os.path.join(output_dir, f"temp_{sanitized_filename}")
             
-            logger.info(f"PDF dosyası işleniyor: {original_filename}")
-            logger.info(f"Temizlenmiş dosya adı: {clean_filename_result}")
+            logger.info(f"Processing PDF file: {original_filename}")
+            logger.info(f"Sanitized filename: {sanitized_filename}")
             
             try:
-                with open(temp_pdf_path, 'wb') as f:
-                    f.write(part.get_payload(decode=True))
+                with open(temp_pdf_path, 'wb') as temp_file:
+                    temp_file.write(part.get_payload(decode=True))
                 
                 processed_files.extend(image_processor.process_pdf(temp_pdf_path, uid))
-            except Exception as e:
-                logger.error(f"PDF dosyası işlenirken hata oluştu: {e}")
+            except Exception as error:
+                logger.error(f"Error processing PDF file: {error}")
             finally:
                 if os.path.exists(temp_pdf_path):
                     try:
                         os.remove(temp_pdf_path)
-                    except Exception as e:
-                        logger.error(f"Geçici PDF dosyası silinirken hata oluştu: {e}")
+                    except Exception as error:
+                        logger.error(f"Error deleting temporary PDF file: {error}")
     
     # Save processed content as JSON
     content_dir = Path(output_dir)
     content_dir.mkdir(exist_ok=True)
     
     json_file_path = content_dir / f"{uid}.json"
-    with open(json_file_path, "w", encoding="utf-8") as f:
+    with open(json_file_path, "w", encoding="utf-8") as output_file:
         json.dump({
-            'from': from_,
-            'to': to_,
+            'sender': sender,
+            'recipient': recipient,
             'date': date,
             'subject': subject,
             'text_contents': text_contents,
             'html_contents': html_contents,
             'attachments': [name for name, _ in attachments],
             'processed_files': processed_files
-        }, f, ensure_ascii=False, indent=2)
+        }, output_file, ensure_ascii=False, indent=2)
     
-    logger.info(f"İşlenmiş içerik kaydedildi: {json_file_path}")
+    logger.info(f"Processed content saved: {json_file_path}")
     return processed_files
 
+
 def main():
+    """
+    Main entry point for the content processor.
+    Processes all collected emails and extracts their content.
+    """
     try:
         config = load_config()
         output_dir = "content"
         os.makedirs(output_dir, exist_ok=True)
 
-        mail_uids = config.get("collected_uids", "").split(",")
+        email_uids = config.get("collected_uids", "").split(",")
 
-        for uid in mail_uids:
+        for uid in email_uids:
             if not uid.strip():
-                logger.warning("Boş UID atlanıyor.")
+                logger.warning("Skipping empty UID.")
                 continue
 
-            logger.info(f"UID {uid} işleniyor...")
+            logger.info(f"Processing UID {uid}...")
             processed_files = process_email_content(uid, output_dir)
             if processed_files:
-                logger.info(f"İşlenmiş dosyalar: {', '.join(processed_files)}")
+                logger.info(f"Processed files: {', '.join(processed_files)}")
                 save_processed_uid(uid, config)
             else:
-                logger.warning(f"UID {uid} için ek dosya bulunmadığından işlem yapılamadı.")
+                logger.warning(f"No attachments found for UID {uid}, skipping processing.")
             
             logger.info("-" * 100)
 
-    except Exception as e:
-        logger.error(f"Ana işlem sırasında hata oluştu: {e}")
+    except Exception as error:
+        logger.error(f"Error during main processing: {error}")
+
 
 if __name__ == "__main__":
     main()

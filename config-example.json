@@ -1,10 +1,14 @@
 {
-  "disclaimer":"Delete the '-example' word from the file name before using it. You may delete this disclaimer as well.",
-  "email": "email@email.com",
-  "password": "passowrd",
-  "imap_server": "imap.server.email.com",
-  "poppler_path": "C:\\path\\to\\poppler\\bin",
+  "disclaimer": "Delete the '-example' suffix from the filename before using. You may delete this disclaimer as well.",
+  "email": "your-email@example.com",
+  "password": "your-email-password",
+  "imap_server": "imap.example.com",
+  "poppler_path": "",
   "collected_uids": "",
   "processed_uids": "",
-  "published_uids": ""
+  "published_uids": "",
+  "twitter_api_key": "your-twitter-api-key",
+  "twitter_api_secret": "your-twitter-api-secret",
+  "twitter_access_token": "your-twitter-access-token",
+  "twitter_access_token_secret": "your-twitter-access-token-secret"
 }
