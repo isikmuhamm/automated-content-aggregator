@@ -181,28 +181,24 @@ def get_email_content(msg):
     
     def extract_content(part):
         try:
-            content = part.get_payload(decode=True)
-            charset = part.get_content_charset() or 'utf-8'
-            
-            if content is None:
+            raw_bytes = part.get_payload(decode=True)
+            if raw_bytes is None:
                 return
 
-            if part.get('Content-Transfer-Encoding', '').lower() == 'quoted-printable':
-                content = quopri.decodestring(content).decode(charset, errors='ignore')
-            elif part.get('Content-Transfer-Encoding', '').lower() == 'base64':
-                content = base64.b64decode(content)
-            
-            decoded_content = decode_string(content, charset)
-            
-            if part.get_content_type() == 'text/plain':
-                text_content.append(decoded_content)
-            elif part.get_content_type() == 'text/html':
-                html_content.append(decoded_content)
-            elif part.get_filename():
-                attachments.append((part.get_filename(), content))
+            filename = part.get_filename()
+            content_type = part.get_content_type()
+
+            if content_type in ['text/plain', 'text/html']:
+                charset = part.get_content_charset() or 'utf-8'
+                decoded_content = decode_string(raw_bytes, charset)
+                if content_type == 'text/plain':
+                    text_content.append(decoded_content)
+                else:
+                    html_content.append(decoded_content)
+            elif filename:
+                attachments.append((filename, raw_bytes))
         except Exception as error:
             logger.error(f"Error extracting content: {error}")
-            logger.error(f"Problematic content: {content[:100] if content else 'Empty content'}...")
     
     if msg.is_multipart():
         for part in msg.walk():
@@ -454,20 +450,21 @@ def main():
         output_dir = "content"
         os.makedirs(output_dir, exist_ok=True)
 
-        email_uids = config.get("collected_uids", "").split(",")
+        email_uids = [uid.strip() for uid in config.get("collected_uids", "").split(",") if uid.strip()]
+        processed_uids = [uid.strip() for uid in config.get("processed_uids", "").split(",") if uid.strip()]
 
         for uid in email_uids:
-            if not uid.strip():
-                logger.warning("Skipping empty UID.")
+            if uid in processed_uids:
+                logger.info(f"UID {uid} already processed. Skipping.")
                 continue
 
             logger.info(f"Processing UID {uid}...")
             processed_files = process_email_content(uid, output_dir)
+            save_processed_uid(uid, config)
             if processed_files:
                 logger.info(f"Processed files: {', '.join(processed_files)}")
-                save_processed_uid(uid, config)
             else:
-                logger.warning(f"No attachments found for UID {uid}, skipping processing.")
+                logger.info(f"No attachments processed for UID {uid}.")
             
             logger.info("-" * 100)
 

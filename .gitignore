@@ -1,3 +1,6 @@
 content
 rawcontent
 config.json
+.env
+__pycache__/
+*.pyc

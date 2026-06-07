@@ -110,8 +110,9 @@ def collect_unread_emails(mail_connection, config):
 
     new_emails = []
 
-    # Get collected UIDs as a single line setting
-    collected_uids = config.get("collected_uids", "").split(",")
+    # Get collected UIDs as a list, filtering out empty strings
+    collected_uids = [uid.strip() for uid in config.get("collected_uids", "").split(",") if uid.strip()]
+    config_changed = False
 
     for email_id in email_ids:
         email_id_str = email_id.decode()
@@ -128,24 +129,26 @@ def collect_unread_emails(mail_connection, config):
         email_body = msg_data[0][1]
         msg = email.message_from_bytes(email_body)
 
+        # Mark UID as collected to avoid future processing
+        if email_id_str not in collected_uids:
+            collected_uids.append(email_id_str)
+            config_changed = True
+
+        # Mark as read on the mail server
+        mail_connection.uid('STORE', email_id, '+FLAGS', '\\Seen')
+
         if is_personal_email(msg, config["email"]):
+            logger.info(f"Skipping personal email UID {email_id_str}")
             continue
 
         new_emails.append(email_id_str)
 
-        # Add UID to config.json (single line format)
-        if collected_uids == [""]:
-            collected_uids = [email_id_str]
-        else:
-            collected_uids.append(email_id_str)
-
-        config["collected_uids"] = ",".join(collected_uids)
-        save_config(config)
-
         # Save raw content
         save_raw_content(email_id_str, email_body)
 
-        mail_connection.uid('STORE', email_id, '+FLAGS', '\\Seen')
+    if config_changed:
+        config["collected_uids"] = ",".join(collected_uids)
+        save_config(config)
 
     return new_emails
 

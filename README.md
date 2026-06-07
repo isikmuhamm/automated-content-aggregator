@@ -1,11 +1,12 @@
 # Automated Content Aggregator (ETL Pipeline)
 
 ![Python](https://img.shields.io/badge/Python-3.x-blue?style=for-the-badge&logo=python)
-![Tweepy](https://img.shields.io/badge/Tweepy-Twitter_API-1DA1F2?style=for-the-badge&logo=twitter)
+![Tweepy](https://img.shields.io/badge/Tweepy-Twitter_API_v2-1DA1F2?style=for-the-badge&logo=twitter)
+![Telegram](https://img.shields.io/badge/Telegram-Bot_API-26A5E4?style=for-the-badge&logo=telegram)
+![Discord](https://img.shields.io/badge/Discord-Webhook_API-5865F2?style=for-the-badge&logo=discord)
 ![Pillow](https://img.shields.io/badge/Pillow-Image_Processing-green?style=for-the-badge)
 ![Pipeline](https://img.shields.io/badge/Architecture-ETL-orange?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Backend_Prototype-lightgrey?style=for-the-badge)
 
 ---
 
@@ -14,8 +15,9 @@
 - [📌 Project Overview](#-project-overview)
 - [🏗️ Architectural Workflow](#️-architectural-workflow)
 - [⚡ Core Modules](#-core-modules)
-- [🛠️ Technical Stack](#️-technical-stack)
+- [🛠️ Technical Stack](#-technical-stack)
 - [⚙️ Setup & Installation](#️-setup--installation)
+- [🧪 Testing & Verification](#-testing--verification)
 - [🚀 Usage](#-usage)
 - [📖 Technical Implementation](#-technical-implementation)
 - [⚖️ License](#️-license)
@@ -24,9 +26,9 @@
 
 ## 📌 Project Overview
 
-This repository hosts a backend automation tool designed to solve the problem of **"Information Overload."** It functions as an **ETL (Extract, Transform, Load)** pipeline that autonomously monitors email inboxes for specific newsletters, extracts content (including PDF attachments), and normalizes the data for downstream distribution.
+This repository hosts a backend automation tool designed to solve the problem of **"Information Overload."** It functions as an **ETL (Extract, Transform, Load)** pipeline that autonomously monitors email inboxes for specific newsletters, extracts text/HTML content (including PDF/image attachments), and processes the data for distribution to social media or messaging platforms.
 
-The project focuses on the **Ingestion and Processing** layers, providing a structured data stream ready for any social media or messaging API integration.
+The project features a **multi-channel publishing layer** that can output to Twitter/X (v2), Telegram, Discord, or simply dry-run to the console.
 
 ---
 
@@ -46,32 +48,36 @@ graph LR
     end
 
     Clean -->|JSON Payload| Publisher[Publisher Module]
-    Publisher -->|Tweepy| Twitter[🐦 Twitter]
+    Publisher -->|Tweepy| Twitter[🐦 Twitter / X v2]
+    Publisher -->|urllib| Telegram[📢 Telegram Bot]
+    Publisher -->|urllib| Discord[💬 Discord Webhook]
+    Publisher -->|logging| Console[💻 Console / Dry-run]
 ```
 
 ---
 
 ## ⚡ Core Modules
 
-| Module        | File           | Description                                                                                                                                                                               |
-| ------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Collector** | `collector.py` | Connects to IMAP servers using secure SSL sockets. Filters personal emails and saves raw `.eml` files. Tracks collected UIDs in configuration.                                            |
-| **Processor** | `processor.py` | Extracts email content including text, HTML, and attachments. Uses **Poppler** via `pdf2image` for PDF-to-image conversion. Processes images with **Pillow** and outputs structured JSON. |
-| **Publisher** | `publish.py`   | Twitter API integration using **Tweepy**. Posts processed content to Twitter. Template for additional platform integrations.                                                              |
+| Module | File | Description |
+| :--- | :--- | :--- |
+| **Collector** | `collector.py` | Connects to IMAP servers using secure SSL sockets. Filters out personal emails, marks processed messages, and saves raw `.eml` files. |
+| **Processor** | `processor.py` | Extracts email text, HTML, and attachments. Converts PDF pages to JPEG images using **Poppler** and processes other attachments using **Pillow**. Handles MIME decoding safely. |
+| **Publisher** | `publish.py` | Handles multi-target publication (Console, Telegram Bot, Discord Webhook, Twitter API v2). Implements standard library handlers for HTTP-based messaging to minimize dependencies. |
+| **Test Pipeline**| `test_pipeline.py` | A credentials-free integration test runner that generates mock emails, runs extraction/processing/publishing, and asserts accuracy. |
 
 ---
 
 ## 🛠️ Technical Stack
 
-| Component               | Technology                        |
-| ----------------------- | --------------------------------- |
-| **Language**            | Python 3.x                        |
-| **Email Protocol**      | IMAP4 with SSL/TLS                |
-| **PDF Processing**      | `pdf2image` + `poppler-utils`     |
-| **Image Processing**    | `Pillow` (PIL)                    |
-| **Twitter Integration** | `Tweepy`                          |
-| **Configuration**       | JSON-based environment management |
-| **Data Format**         | JSON payload output               |
+| Component | Technology |
+| :--- | :--- |
+| **Language** | Python 3.x |
+| **Email Protocol** | IMAP4 with SSL/TLS |
+| **PDF Processing** | `pdf2image` + `poppler-utils` |
+| **Image Processing** | `Pillow` (PIL) |
+| **Integrations** | `Tweepy` (Twitter/X v2), Telegram Bot API, Discord Webhook API |
+| **Network Requests** | Standard Python `urllib` (for zero-dependency Telegram/Discord integrations) |
+| **Configuration** | JSON-based file-system state management |
 
 ---
 
@@ -79,7 +85,7 @@ graph LR
 
 ### Prerequisites
 
-**1. Install Poppler** (required for PDF parsing):
+**1. Install Poppler** (required for converting PDF to image pages):
 
 ```bash
 # Ubuntu/Debian
@@ -106,47 +112,65 @@ pip install Pillow pdf2image tweepy
    cp config-example.json config.json
    ```
 
-2. Update the configuration with your credentials:
+2. Update `config.json` with your credentials:
    ```json
    {
      "email": "your-email@example.com",
      "password": "your-email-password",
      "imap_server": "imap.example.com",
      "poppler_path": "",
+     "publisher_target": "console",
+     "telegram_bot_token": "your-telegram-bot-token",
+     "telegram_chat_id": "your-telegram-chat-id",
+     "discord_webhook_url": "your-discord-webhook-url",
      "twitter_api_key": "your-twitter-api-key",
-     "twitter_api_secret": "your-twitter-api-secret"
+     "twitter_api_secret": "your-twitter-api-secret",
+     "twitter_access_token": "your-twitter-access-token",
+     "twitter_access_token_secret": "your-twitter-access-token-secret"
    }
    ```
 
-> **Note:** On Windows, set `poppler_path` to the full path of your Poppler `bin` directory (e.g., `C:\\Tools\\poppler\\bin`). On Linux/macOS, leave it empty if Poppler is in your system PATH.
+> **Note:** On Windows, set `poppler_path` to the full path of your Poppler `bin` directory (e.g., `C:\\Tools\\poppler\\bin`). Leave it empty if Poppler is in your system PATH.
+> Set `"publisher_target"` to one of: `"console"`, `"telegram"`, `"discord"`, or `"twitter"`.
+
+---
+
+## 🧪 Testing & Verification
+
+You can verify that the entire processor and publisher pipeline is fully operational **without configuring any email credentials or API keys** by running:
+
+```bash
+python test_pipeline.py
+```
+
+This script will:
+1. Back up your existing `config.json`.
+2. Generate a mock multipart email with base64-encoded text and image attachments.
+3. Run `processor.py` to extract contents.
+4. Run `publish.py` in `"console"` mode to print the publication draft.
+5. Restore your original configuration.
 
 ---
 
 ## 🚀 Usage
 
 ### Step 1: Collect Emails
-
 ```bash
 python collector.py
 ```
-
-This connects to your IMAP server and downloads unread newsletter emails to the `rawcontent/` directory.
+Connects to the IMAP server and downloads new newsletter emails to the `rawcontent/` directory.
 
 ### Step 2: Process Content
-
 ```bash
 python processor.py
 ```
-
-This extracts content from collected emails, converts PDF attachments to images, and saves structured JSON to the `content/` directory.
+Extracts text, HTML, and attachments from collected raw emails, converts PDFs/images, and saves structured JSON metadata to the `content/` directory.
 
 ### Step 3: Publish Content
-
 ```bash
 python publish.py
 ```
-
-This posts processed content to Twitter using the configured API credentials.
+Publishes unpublished posts to your configured target (`publisher_target`).
 
 ---
 
@@ -154,56 +178,16 @@ This posts processed content to Twitter using the configured API credentials.
 
 ### Key Functions
 
-| Function                       | Module                         | Description                                                 |
-| ------------------------------ | ------------------------------ | ----------------------------------------------------------- |
-| `load_config()`                | `collector.py`, `processor.py` | Loads configuration from `config.json`                      |
-| `collect_unread_emails()`      | `collector.py`                 | Searches IMAP inbox for unread emails and saves raw content |
-| `is_personal_email()`          | `collector.py`                 | Filters out personal emails based on recipient fields       |
-| `decode_sender()`              | `processor.py`                 | Decodes MIME-encoded sender information                     |
-| `get_email_content()`          | `processor.py`                 | Extracts text, HTML, and attachments from email             |
-| `ImageProcessor.process_pdf()` | `processor.py`                 | Converts PDF pages to JPEG images using Poppler             |
-| `sanitize_filename()`          | `processor.py`                 | Cleans filenames by removing invalid characters             |
-| `authenticate_twitter()`       | `publish.py`                   | OAuth 1.0a authentication with Twitter API                  |
-| `post_tweet()`                 | `publish.py`                   | Posts a message to Twitter                                  |
-
-### Class Reference
-
-| Class            | Module         | Description                                                                                         |
-| ---------------- | -------------- | --------------------------------------------------------------------------------------------------- |
-| `ImageProcessor` | `processor.py` | Handles image processing, deduplication via MD5 hashing, format conversion, and PDF page extraction |
-
-### Dependencies
-
-```python
-# Standard Library
-import imaplib      # IMAP protocol implementation
-import email        # Email message parsing
-import json         # Configuration and data serialization
-import os           # File system operations
-import hashlib      # MD5 hashing for image deduplication
-
-# Third-Party
-from PIL import Image           # Image processing (Pillow)
-from pdf2image import convert_from_path  # PDF to image conversion
-import tweepy                   # Twitter API integration
-```
-
-### Output Structure
-
-Processed emails are saved as JSON with the following schema:
-
-```json
-{
-  "sender": "Newsletter <news@example.com>",
-  "recipient": "user@example.com",
-  "date": "Mon, 01 Jan 2026 10:00:00 +0000",
-  "subject": "Weekly Newsletter",
-  "text_contents": ["Plain text content..."],
-  "html_contents": ["<html>...</html>"],
-  "attachments": ["document.pdf"],
-  "processed_files": ["content/123_pdf_0.jpg", "content/123_pdf_1.jpg"]
-}
-```
+| Function | Module | Description |
+| :--- | :--- | :--- |
+| `collect_unread_emails()` | `collector.py` | Searches IMAP for unread emails, registers UIDs, marks them read on the server, and saves raw content. |
+| `is_personal_email()` | `collector.py` | Filters out personal emails from being processed. |
+| `get_email_content()` | `processor.py` | Decodes MIME-encoded parts safely to extract plain text and HTML. |
+| `ImageProcessor.process_pdf()`| `processor.py` | Converts PDF pages to JPEG images using Poppler. |
+| `send_multipart_request()` | `publish.py` | Standard-library helper to send text and binary files via multipart/form-data. |
+| `publish_telegram()` | `publish.py` | Dispatches text summaries and generated teaser images to Telegram. |
+| `publish_discord()` | `publish.py` | Dispatches summaries and attachments to Discord. |
+| `publish_twitter()` | `publish.py` | Dispatches tweets with media uploads via Twitter API v2. |
 
 ---
 
@@ -213,4 +197,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ---
 
-_Designed by **Muhammet Işık** as an automated information retrieval prototype._
+_Originally designed by **Muhammet Işık**, modernized to support multi-channel publishing._
